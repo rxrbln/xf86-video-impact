@@ -1,3 +1,8 @@
+2006-06-27  Alex Deucher  <agd5f@yahoo.com>
+
+	* configure.ac:
+	- fix building man page
+
 2006-06-25  Alex Deucher  <agd5f@yahoo.com>
 
 	Add Impact driver for SGI Indigo2 and Octane.  Written by
