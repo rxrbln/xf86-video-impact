@@ -14,7 +14,7 @@ impact \- Impact video driver
 .fi
 .SH DESCRIPTION
 .B impact
-is an XFree86 driver for the SGI Indigo2's impact video cards.
+is an __xservername__ driver for the SGI Indigo2's impact video cards.
 .SH SUPPORTED HARDWARE
 The
 .B impact
@@ -24,7 +24,7 @@ It supports Impact in 24bit TrueColor mode. There is also a 8bit PseudoColor
 mode, but this affects the shadow frame-buffer only (memory usage), hardware
 settings are the same.
 .SH CONFIGURATION DETAILS
-Please refer to XF86Config(__filemansuffix__) for general configuration
+Please refer to __xconfigfile__(__filemansuffix__) for general configuration
 details.  This section only covers configuration details specific to this
 driver.
 .PP
@@ -36,7 +36,7 @@ the card.  However, you have to decide what color mode you want:
 number of bitplanes of the board (8 or 24)
 Default: 24.
 .SH "SEE ALSO"
-XFree86(1), XF86Config(__filemansuffix__), xf86config(1), Xserver(1), X(__miscmansuffix__)
+__xservername__(1), __xconfigfile__(__filemansuffix__), xorgconfig(1), Xserver(1), X(__miscmansuffix__)
 .SH AUTHORS
 Authors:
 .TP
