@@ -268,12 +268,7 @@ ImpactProbe(DriverPtr drv, int flags)
 				if (busID == probedIDs[j].id) {
 					int entity;
 					ScrnInfoPtr pScrn = 0;
-					/*
-					 * This is a hack because don't have the RAC info (and
-					 * don't want it).  Set it as an ISA entity to get the
-					 * entity field set up right.
-					 */
-					entity = xf86ClaimIsaSlot(drv, 0, dev, TRUE);
+					entity = xf86ClaimNoSlot(drv, 0, dev, TRUE);
 					if (probedIDs[j].sr) {
 						base = (IMPACTSR_BASE_ADDR0 + busID * IMPACTSR_BASE_OFFSET);
 						RANGE(range[0], base,
@@ -283,9 +278,8 @@ ImpactProbe(DriverPtr drv, int flags)
 						RANGE(range[0], base,
 							base + sizeof(ImpactI2Regs), ResExcMemBlock);
 					}
-					pScrn = xf86ConfigIsaEntity(pScrn, 0, entity, NULL,
-									range, NULL, NULL, NULL, NULL);
-					/* Allocate a ScrnInfoRec */
+					pScrn = xf86AllocateScreen(drv, 0);
+					xf86AddEntityToScreen(pScrn, entity);
 					pScrn->driverVersion = IMPACT_VERSION;
 					pScrn->driverName = IMPACT_DRIVER_NAME;
 					pScrn->name = IMPACT_NAME;
