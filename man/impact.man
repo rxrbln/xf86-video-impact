@@ -36,7 +36,7 @@ the card.  However, you have to decide what color mode you want:
 number of bitplanes of the board (8 or 24)
 Default: 24.
 .SH "SEE ALSO"
-__xservername__(1), __xconfigfile__(__filemansuffix__), xorgconfig(1), Xserver(1), X(__miscmansuffix__)
+__xservername__(1), __xconfigfile__(__filemansuffix__), Xserver(1), X(__miscmansuffix__)
 .SH AUTHORS
 Authors:
 .TP
