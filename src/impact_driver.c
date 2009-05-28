@@ -124,19 +124,6 @@ static SymTabRec ImpactChipsets[] = {
 	{ -1, NULL }
 };
 
-/* List of Symbols from other modules that this module references */
-
-static const char *fbSymbols[] = {
-	"fbPictureInit",
-	"fbScreenInit",
-	NULL
-};
-
-static const char *shadowSymbols[] = {
-	"ShadowFBInit",
-	NULL
-};
-
 #ifdef XFree86LOADER
 
 static MODULESETUPPROTO(impactSetup);
@@ -170,11 +157,6 @@ impactSetup(pointer module, pointer opts, int *errmaj, int *errmin)
 		 */
 		setupDone = TRUE;
 		xf86AddDriver(&IMPACT, module, 0);
-		/*
-		 * Tell the loader about symbols from other modules that this module
-		 * might refer to.
-		 */
-		LoaderRefSymLists(fbSymbols, shadowSymbols, NULL);
 		/*
 		 * The return value must be non-NULL on success even though
 		 * there is no TearDownProc.
@@ -499,13 +481,9 @@ ImpactPreInit(ScrnInfoPtr pScrn, int flags)
 	if ( !(pFbMod = xf86LoadSubModule(pScrn,"fb")) )
 		goto out_freeopt;
 
-	xf86LoaderReqSymLists( fbSymbols, NULL);
-
 	/* Load ShadowFB module */
 	if ( !xf86LoadSubModule(pScrn,"shadowfb") )
 		goto out_freemod;
-
-	xf86LoaderReqSymLists(shadowSymbols, NULL);
 
 	return TRUE;
 
