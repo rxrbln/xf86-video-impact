@@ -206,8 +206,6 @@ ImpactGetRec(ScrnInfoPtr pScrn)
 static Bool
 ImpactFreeRec(ScrnInfoPtr pScrn)
 {
-	if (!pScrn->driverPrivate)
-		return TRUE;
 	free(pScrn->driverPrivate);
 	pScrn->driverPrivate = 0;
 	return TRUE;
