@@ -208,7 +208,7 @@ ImpactFreeRec(ScrnInfoPtr pScrn)
 {
 	if (!pScrn->driverPrivate)
 		return TRUE;
-	xfree(pScrn->driverPrivate);
+	free(pScrn->driverPrivate);
 	pScrn->driverPrivate = 0;
 	return TRUE;
 }
@@ -277,7 +277,7 @@ ImpactProbe(DriverPtr drv, int flags)
 				}
 		}
 	}
-	xfree(devSections);
+	free(devSections);
 	return foundScreen;
 }
 
@@ -391,7 +391,7 @@ ImpactPreInit(ScrnInfoPtr pScrn, int flags)
 
 	/* Fill in pScrn->options) */
 	xf86CollectOptions(pScrn, NULL);
-	if ( !(pImpact->Options = xalloc(sizeof(ImpactOptions))) )
+	if ( !(pImpact->Options = malloc(sizeof(ImpactOptions))) )
 		goto out_freerec;
 
 	memcpy(pImpact->Options, ImpactOptions, sizeof(ImpactOptions));
@@ -490,7 +490,7 @@ ImpactPreInit(ScrnInfoPtr pScrn, int flags)
 out_freemod:
 	/* xf86UnloadSubModule(pFbMod); */ /* Unload FB module */
 out_freeopt:
-	xfree(pImpact->Options);
+	free(pImpact->Options);
 out_freerec:
 	ImpactFreeRec(pScrn);
 	return FALSE;
