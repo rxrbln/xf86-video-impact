@@ -23,7 +23,7 @@
 AC_PREREQ(2.57)
 AC_INIT([xf86-video-impact],
         0.2.0,
-        [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg],
+        [https://gitlab.freedesktop.org/xorg/driver/xf86-video-impact/issues],
         xf86-video-impact)
 
 AC_CONFIG_SRCDIR([Makefile.am])
