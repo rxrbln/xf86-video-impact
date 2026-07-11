@@ -46,8 +46,6 @@
 
 /* Drivers using the mi SW cursor need: */
 #include "mipointer.h"
-/* Drivers using the mi implementation of backing store need: */
-#include "mibstore.h"
 /* Drivers using the mi colourmap code need: */
 #include "micmap.h"
 
@@ -89,10 +87,10 @@ static void	ImpactIdentify(int flags);
 static const OptionInfoRec * ImpactAvailableOptions(int chipid, int busid);
 static Bool ImpactProbe(DriverPtr drv, int flags);
 static Bool ImpactPreInit(ScrnInfoPtr pScrn, int flags);
-static Bool ImpactScreenInit(int Index, ScreenPtr pScreen, int argc, char **argv);
-static Bool ImpactEnterVT(int scrnIndex, int flags);
-static void ImpactLeaveVT(int scrnIndex, int flags);
-static Bool ImpactCloseScreen(int scrnIndex, ScreenPtr pScreen);
+static Bool ImpactScreenInit(SCREEN_INIT_ARGS_DECL);
+static Bool ImpactEnterVT(VT_FUNC_ARGS_DECL);
+static void ImpactLeaveVT(VT_FUNC_ARGS_DECL);
+static Bool ImpactCloseScreen(CLOSE_SCREEN_ARGS_DECL);
 static Bool ImpactSaveScreen(ScreenPtr pScreen, int mode);
 static unsigned ImpactHWProbe(struct probed_id probedIDs[],int lim);	/* return number of found boards */
 static Bool ImpactModeInit(ScrnInfoPtr pScrn, DisplayModePtr mode);
@@ -134,7 +132,7 @@ static XF86ModuleVersionInfo impactVersRec =
 	MODULEVENDORSTRING,
 	MODINFOSTRING1,
 	MODINFOSTRING2,
-	XF86_VERSION_CURRENT,
+	XORG_VERSION_CURRENT,
 	IMPACT_MAJOR_VERSION, IMPACT_MINOR_VERSION, IMPACT_PATCHLEVEL,
 	ABI_CLASS_VIDEODRV,
 	ABI_VIDEODRV_VERSION,
@@ -142,7 +140,7 @@ static XF86ModuleVersionInfo impactVersRec =
 	{0,0,0,0}
 };
 
-XF86ModuleData impactModuleData = { &impactVersRec, impactSetup, NULL };
+_X_EXPORT  XF86ModuleData impactModuleData = { &impactVersRec, impactSetup, NULL };
 
 static pointer
 impactSetup(pointer module, pointer opts, int *errmaj, int *errmin)
@@ -214,9 +212,8 @@ ImpactFreeRec(ScrnInfoPtr pScrn)
 static void
 ImpactIdentify(int flags)
 {
-	xf86PrintChipsets(
-		IMPACT_NAME, "experimental driver for Impact Graphics Card",
-		ImpactChipsets);
+	xf86PrintChipsets(IMPACT_NAME, "experimental driver for Impact Graphics Card",
+			  ImpactChipsets);
 }
 
 static Bool
@@ -226,7 +223,6 @@ ImpactProbe(DriverPtr drv, int flags)
 	Bool foundScreen = FALSE;
 	GDevPtr *devSections;
 	GDevPtr dev = 0;
-	resRange range[] = { {ResExcMemBlock,0,0}, _END };
 	struct probed_id probedIDs[IMPACT_MAX_BOARDS];
 	memType base;
 
@@ -251,12 +247,8 @@ ImpactProbe(DriverPtr drv, int flags)
 					entity = xf86ClaimNoSlot(drv, 0, dev, TRUE);
 					if (probedIDs[j].sr) {
 						base = (IMPACTSR_BASE_ADDR0 + busID * IMPACTSR_BASE_OFFSET);
-						RANGE(range[0], base,
-							base + sizeof(ImpactSRRegs), ResExcMemBlock);
 					} else {
 						base = (IMPACTI2_BASE_ADDR0 + busID * IMPACTI2_BASE_OFFSET);
-						RANGE(range[0], base,
-							base + sizeof(ImpactI2Regs), ResExcMemBlock);
 					}
 					pScrn = xf86AllocateScreen(drv, 0);
 					xf86AddEntityToScreen(pScrn, entity);
@@ -412,8 +404,7 @@ ImpactPreInit(ScrnInfoPtr pScrn, int flags)
 		pImpact->board_rev, pImpact->rex_rev,
 		pImpact->cmap_rev, pImpact->xmap_rev);
 
-	if ( xf86GetOptValInteger(
-			pImpact->Options, OPTION_BITPLANES, &pImpact->bitplanes) )
+	if (xf86GetOptValInteger(pImpact->Options, OPTION_BITPLANES, &pImpact->bitplanes))
 		from = X_CONFIG;
 	xf86DrvMsg(pScrn->scrnIndex, from, "Impact has %d bitplanes\n",
 			pImpact->bitplanes);
@@ -446,8 +437,7 @@ ImpactPreInit(ScrnInfoPtr pScrn, int flags)
 
 	/* see above note */
 	/* There is currently only an 1280x1024 mode */
-	i = xf86ValidateModes(
-			pScrn, pScrn->monitor->Modes,
+	i = xf86ValidateModes(pScrn, pScrn->monitor->Modes,
 			pScrn->display->modes, clockRanges,
 			NULL, 256, 2048,
 			pScrn->bitsPerPixel, 128, 2048,
@@ -495,7 +485,7 @@ out_freerec:
 }
 
 static Bool
-ImpactScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
+ImpactScreenInit(SCREEN_INIT_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn;
 	ImpactPtr pImpact;
@@ -504,7 +494,7 @@ ImpactScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	int i;
 
 	/* First get a pointer to our private info */
-	pScrn = xf86Screens[pScreen->myNum];
+	pScrn = xf86ScreenToScrn(pScreen);
 	pImpact = IMPACTPTR(pScrn);
 
 	/* map the Impactregs until the server dies */
@@ -519,8 +509,7 @@ ImpactScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	/* Reset visual list. */
 	miClearVisualTypes();
 
-	if ( !miSetVisualTypes(
-			pScrn->depth,
+	if ( !miSetVisualTypes(pScrn->depth,
 			pScrn->depth != 8
 				? TrueColorMask
 				: miGetDefaultVisualMask(pScrn->depth),
@@ -536,12 +525,11 @@ ImpactScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	if ( !ImpactModeInit(pScrn,pScrn->currentMode) )
 		goto out_freerec;
 
-	ret = fbScreenInit(
-				pScreen, pImpact->ShadowPtr,
-				pScrn->virtualX, pScrn->virtualY,
-				pScrn->xDpi, pScrn->yDpi,
-				pScrn->displayWidth,
-				pScrn->bitsPerPixel);
+	ret = fbScreenInit(pScreen, pImpact->ShadowPtr,
+			pScrn->virtualX, pScrn->virtualY,
+			pScrn->xDpi, pScrn->yDpi,
+			pScrn->displayWidth,
+			pScrn->bitsPerPixel);
 	if (!ret)
 		goto out_freerec;
 
@@ -561,14 +549,20 @@ ImpactScreenInit(int index, ScreenPtr pScreen, int argc, char **argv)
 	/* must be after RGB ordering fixed */
 	fbPictureInit (pScreen, 0, 0);
 
-	miInitializeBackingStore(pScreen);
 	xf86SetBackingStore(pScreen);
 
 	xf86SetBlackWhitePixels(pScreen);
 
-	/* Initialize software cursor */
+	/* Initialize software cursor (also the fallback if the HW cursor
+	 * cannot be set up below). */
 	if ( !miDCInitialize(pScreen,xf86GetPointerScreenFuncs()) )
 		goto out_freerec;
+
+	/* Initialise the hardware cursor; on failure we keep the SW cursor. */
+	if ( !ImpactHWCursorInit(pScreen) )
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+			"Hardware cursor initialization failed,"
+			" using software cursor\n");
 
 	/* Initialise default colourmap */
 	if ( !miCreateDefColormap(pScreen) )
@@ -610,28 +604,33 @@ out_freerec:
 
 /* called when switching away from a VT */
 static Bool
-ImpactEnterVT(int scrnIndex, int flags)
+ImpactEnterVT(VT_FUNC_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	ScrnInfoPtr pScrn = arg;
 	return ImpactModeInit(pScrn, pScrn->currentMode);
 }
 
 /* called when switching to a VT */
 static void
-ImpactLeaveVT(int scrnIndex, int flags)
+ImpactLeaveVT(VT_FUNC_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	ScrnInfoPtr pScrn = arg;
 	ImpactRestore(pScrn, FALSE);
 }
 
 /* called at the end of each server generation */
 static Bool
-ImpactCloseScreen(int scrnIndex, ScreenPtr pScreen)
+ImpactCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	ImpactPtr pImpact = IMPACTPTR(pScrn);
 
 	ImpactRestore(pScrn, TRUE);
+
+	if (pImpact->CursorInfoRec) {
+		xf86DestroyCursorInfoRec(pImpact->CursorInfoRec);
+		pImpact->CursorInfoRec = NULL;
+	}
 
 	/* unmap the Impact's registers from memory */
 	ImpactUnmapShadowFB(pScrn);
@@ -640,18 +639,15 @@ ImpactCloseScreen(int scrnIndex, ScreenPtr pScreen)
 
 	if (pScreen->CloseScreen == ImpactCloseScreen)
 		pScreen->CloseScreen = pImpact->CloseScreen;
-	return (*pScreen->CloseScreen)(scrnIndex, pScreen);
+	return (*pScreen->CloseScreen)(CLOSE_SCREEN_ARGS);
 }
 
 /* Blank or unblank the screen */
 static Bool
 ImpactSaveScreen(ScreenPtr pScreen, int mode)
 {
-	ScrnInfoPtr pScrn;
-	ImpactPtr pImpact;
-
-	pScrn = xf86Screens[pScreen->myNum];
-	pImpact = IMPACTPTR(pScrn);
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	ImpactPtr pImpact = IMPACTPTR(pScrn);
 
 	ImpactVc3BlankScreen(pScrn, !xf86IsUnblank(mode));
 	return TRUE;
@@ -837,7 +833,7 @@ static void
 ImpactUnmapRegs(ScrnInfoPtr pScrn)
 {
 	ImpactPtr pImpact = IMPACTPTR(pScrn);
-	size_t size = pImpact->isSR ? 0x200000:sizeof(ImpactI2Regs);
+	size_t size = pImpact->isSR ? 0x200000 : sizeof(ImpactI2Regs);
 
 	if (pImpact->pImpactRegs)
 		munmap( pImpact->pImpactRegs, size );

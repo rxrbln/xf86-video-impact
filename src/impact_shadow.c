@@ -350,5 +350,3 @@ ImpactSRRefreshArea32(ScrnInfoPtr pScrn, int num, BoxPtr pbox)
 {
 	ImpactRefreshArea32DMA(IMPACTPTR(pScrn), num, pbox);
 }
-
-/* eof */

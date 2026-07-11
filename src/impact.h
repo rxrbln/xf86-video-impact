@@ -23,8 +23,12 @@
 #include "xf86cmap.h"
 
 /* xaa & hardware cursor */
+#ifdef USE_XAA
 #include "xaa.h"
+#endif
 #include "xf86Cursor.h"
+
+#include "compat-api.h"
 
 /* register definitions of the Impact card */
 #include "impact_regs.h"
@@ -68,6 +72,9 @@ typedef struct {
 	/* for 8bpp ... */
 	unsigned pseudo_palette[256];
 
+	/* hardware cursor */
+	xf86CursorInfoPtr CursorInfoRec;
+
 	/* wrapped funtions: */
 	CloseScreenProcPtr CloseScreen;
 
@@ -80,9 +87,9 @@ typedef struct {
 
 	/* impact register handling for FullHouse/SpeedRacer: */
 	void (*WaitCfifoEmpty)(ImpactRegsPtr);
-	unsigned (*WaitCfifo)(ImpactRegsPtr);
-	unsigned (*WaitDMAOver)(ImpactRegsPtr);
-	unsigned (*WaitDMAReady)(ImpactRegsPtr);
+	void (*WaitCfifo)(ImpactRegsPtr);
+	void (*WaitDMAOver)(ImpactRegsPtr);
+	void (*WaitDMAReady)(ImpactRegsPtr);
 	unsigned short (*Vc3Get)(ImpactRegsPtr, CARD8);
 	void (*Vc3Set)(ImpactRegsPtr, CARD8, unsigned short);
 	CARD32 (*XmapGetModeRegister)(ImpactRegsPtr, CARD8);
@@ -134,6 +141,10 @@ void ImpactLoadPalette(ScrnInfoPtr, int numColors, int *indices,
 		LOCO* colors, VisualPtr);
 void ImpactRestorePalette(ScrnInfoPtr);
 void ImpactBackupPalette(ScrnInfoPtr);
+
+/* impact_cursor.c */
+Bool ImpactHWCursorInit(ScreenPtr pScreen);
+void ImpactLoadCursorImage(ScrnInfoPtr pScrn, unsigned char *bits);
 
 /* impact_shadow.c */
 int ImpactDepth24Flags(void);
