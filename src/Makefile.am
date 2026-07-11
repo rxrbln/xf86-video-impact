@@ -30,6 +30,7 @@ impact_drv_ladir = @moduledir@/drivers
 
 impact_drv_la_SOURCES = \
          impact_cmap.c \
+         impact_cursor.c \
          impact_driver.c \
          impact.h \
          impact_regs.c \

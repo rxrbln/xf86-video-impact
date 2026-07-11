@@ -61,7 +61,32 @@ struct Impact_vc3regs {
 	mgireg16_t ram;				/* 0x0190 */
 } Impact_vc3regs_t;
 
-typedef 
+/*
+ * CMAP DCB device (SGI "_MScmap", cf. mgrashw.h.diag).  Register offsets are
+ * the DCB CRS/data-width encodings: addr = CRS(0)|DW2|ENCRSINC (auto-incrementing
+ * address port), pal = CRS(2)|DW3, etc.  Colours are written R,G,B into the top
+ * three bytes of 'pal': (r<<24)|(g<<16)|(b<<8).
+ */
+typedef
+struct Impact_cmapregs {
+	mgireg8_t  a________[0x08];		/* 0x0000 */
+	mgireg8_t  addrlo;			/* 0x0008 */
+	mgireg8_t  b________[0x30-0x08-1];
+	mgireg16_t addr;			/* 0x0030 (auto-increment) */
+	mgireg8_t  c________[0x88-0x30-2];
+	mgireg8_t  addrhi;			/* 0x0088 */
+	mgireg8_t  d________[0x118-0x88-1];
+	mgireg32_t pal;				/* 0x0118 */
+	mgireg8_t  e________[0x188-0x118-4];
+	mgireg8_t  cmd;				/* 0x0188 */
+	mgireg8_t  f________[0x208-0x188-1];
+	mgireg8_t  status;			/* 0x0208 */
+	mgireg8_t  g________[0x308-0x208-1];
+	mgireg8_t  rev;				/* 0x0308 */
+	mgireg8_t  h________[0x400-0x308-1];
+} Impact_cmapregs_t;
+
+typedef
 struct Impact_rexregs {
 	mgireg8_t  unused[0x78];		/* 0x0000 */
 	mgireg32_t status;			/* 0x0078 */
@@ -79,7 +104,11 @@ struct ImpactI2_regs {
 	mgireg32_t dfifo_delay;			/* 0x50034 */
 	mgireg8_t  b__________[0x48];
 	mgicfifo_t cfifop;			/* 0x50080 */
-	mgireg8_t  c__________[0x11b78];
+	mgireg8_t  c__________[0x60c00-0x50088];
+	Impact_cmapregs_t cmapall;		/* 0x60c00 (broadcast) */
+	Impact_cmapregs_t cmap0;		/* 0x61000 */
+	Impact_cmapregs_t cmap1;		/* 0x61400 */
+	mgireg8_t  c2_________[0x61c00-0x61800];
 	Impact_xmapregs_t xmap;			/* 0x61c00 */
 	mgireg8_t  d__________[0x62000-sizeof(Impact_xmapregs_t)-0x61c00];
 	Impact_vc3regs_t vc3;			/* 0x62000 */
@@ -122,7 +151,11 @@ struct ImpactSR_regs {
 	mgireg32_t dfifo_lw;			/* 0x40028 */
 	mgireg32_t l__________;
 	mgireg32_t dfifo_delay;			/* 0x40030 */
-	mgireg8_t  m__________[0x31bcc];
+	mgireg8_t  m__________[0x70c00-0x40034];
+	Impact_cmapregs_t cmapall;		/* 0x70c00 (broadcast) */
+	Impact_cmapregs_t cmap0;		/* 0x71000 */
+	Impact_cmapregs_t cmap1;		/* 0x71400 */
+	mgireg8_t  m2_________[0x71c00-0x71800];
 	Impact_xmapregs_t xmap;			/* 0x71c00 */
 	mgireg8_t  n__________[0x72000-sizeof(Impact_xmapregs_t)-0x71c00];
 	Impact_vc3regs_t vc3;			/* 0x72000 */
@@ -207,6 +240,12 @@ ImpactFifoCmd32( mgicfifo_t *fifo, unsigned cmd, unsigned reg )
 #define VC3_IREG_CURSOR    0x1d
 #define VC3_IREG_CONTROL   0x1e
 #define VC3_IREG_CONFIG    VC2_IREG_CONFIG
+
+/* VC3 indexed cursor registers (cf. SGI mgrashw.h.diag) */
+#define VC3_IREG_CURSEP    0x01		/* cursor glyph SRAM end pointer */
+#define VC3_IREG_CURSX     0x02		/* cursor X location */
+#define VC3_IREG_CURSY     0x03		/* cursor Y location */
+#define VC3_IRES_RAM_ADDR  0x07		/* SRAM address pointer */
 
 /* VC2 Control register bits */
 #define VC2_CTRL_EVIRQ     0x0001	/* VINTR enable */

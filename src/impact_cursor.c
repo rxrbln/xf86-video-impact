@@ -1,6 +1,7 @@
-impact_cursor.c
+/*
+ * impact_cursor.c - hardware cursor support for the SGI Impact/ImpactSR.
+ * Copyright (C) 2019 - 2026 René Rebe <rene@exactco.de>
  */
-/* $XFree86$ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -20,17 +21,18 @@ static void ImpactSetCursorColors(ScrnInfoPtr pScrn, int bg, int fg);
 /*static void ImpactLoadCursorImage(ScrnInfoPtr pScrn, unsigned char *bits);*/
 static unsigned char* ImpactRealizeCursor(xf86CursorInfoPtr infoPtr, CursorPtr pCurs);
 
-#define MGRAS_XMAP_WRITEALLPP1	0
+/* PROM's MgrasInitCMAP writes xmap pp1_select = 1 for broadcast cmap access */
+#define MGRAS_XMAP_WRITEALLPP1	1
 
-#define mgras_xmapSetPP1Select(base,data)	base->sr.xmap.pp1select = data
-#define mgras_xmapSetAddr(base,addr)	base->sr.xmap.index = addr
-#define mgras_xmapSetDIBdata(base,data)	base->sr.xmap.dib = data
-#define mgras_xmapSetConfig(base,data)	base->sr.xmap.config = data 
+#define mgras_xmapSetPP1Select(xmap,data)	(xmap)->pp1select = data
+#define mgras_xmapSetAddr(xmap,addr)	(xmap)->index = addr
+#define mgras_xmapSetDIBdata(xmap,data)	(xmap)->dib = data
+#define mgras_xmapSetConfig(xmap,data)	(xmap)->config = data
 
 Bool
 ImpactHWCursorInit(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	ImpactPtr pImpact = IMPACTPTR(pScrn);
 	ImpactRegsPtr pImpactRegs = IMPACTREGSPTR(pScrn);
 	xf86CursorInfoPtr infoPtr;
@@ -53,26 +55,6 @@ ImpactHWCursorInit(ScreenPtr pScreen)
 	infoPtr->RealizeCursor = ImpactRealizeCursor;
 	infoPtr->UseHWCursor = NULL;
 
-#if 0
-	/* enable cursor funtion in shadow register */
-	pImpact->vc2ctrl |= VC2_CTRL_ECURS;
-	/* enable glyph cursor, maximum size is 32x32x2 */
-	pImpact->vc2ctrl &= ~( VC2_CTRL_ECG64 | VC2_CTRL_ECCURS);
-	/* setup hw cursors cmap base address  */
-	NewportBfwait(pNewportRegs);
-	pNewportRegs->set.dcbmode = (DCB_XMAP0 | R_DCB_XMAP9_PROTOCOL |
-			XM9_CRS_CURS_CMAP_MSB | NPORT_DMODE_W1 );
-	tmp = pNewportRegs->set.dcbdata0.bytes.b3;
-	pNewportRegs->set.dcbmode = (DCB_XMAP0 | W_DCB_XMAP9_PROTOCOL |
-			XM9_CRS_CURS_CMAP_MSB | NPORT_DMODE_W1 );
-	pNewportRegs->set.dcbdata0.bytes.b3 = tmp;
-	pNewport->curs_cmap_base = (tmp << 5) & 0xffe0;
-#endif
-
-	//mgras_xmapSetPP1Select(pImpactRegs, MGRAS_XMAP_WRITEALLPP1);
-	//mgras_xmapSetAddr(pImpactRegs, 0x1);        /* Do NOT REMOVE THIS */
-	//mgras_xmapSetConfig(pImpactRegs, 0xff000000); /* Hack for Auto Inc */
-
 	return xf86InitCursor(pScreen, infoPtr);
 }
 
@@ -82,7 +64,6 @@ static void ImpactShowCursor(ScrnInfoPtr pScrn)
 	ImpactPtr pImpact = IMPACTPTR(pScrn);
 	ImpactRegsPtr pImpactRegs = pImpact->pImpactRegs;
 	unsigned short val = (*pImpact->Vc3Get)( pImpactRegs, VC3_IREG_CURSOR);
-	//fprintf(stderr, "show cursor: %x\n", val);
 	(*pImpact->Vc3Set)(pImpactRegs, 0x1d, val | (0x2 | VC3_CTRL_ECURS));
 }
 
@@ -98,128 +79,116 @@ static void ImpactSetCursorPosition(ScrnInfoPtr pScrn, int x, int y)
 {
 	ImpactPtr pImpact = IMPACTPTR(pScrn);
 	ImpactRegsPtr pImpactRegs = pImpact->pImpactRegs;
-	/* temp. hack due prom set up 64px cursor? */
 	(*pImpact->Vc3Set)( pImpactRegs, VC3_IREG_CURSX, (CARD16) x + 31);
         (*pImpact->Vc3Set)( pImpactRegs, VC3_IREG_CURSY, (CARD16) y + 31);
 }
 
-#define HQ3_BFIFO_MAX		16	
-#define HQ3_BFIFODEPTH(base)	(base->sr.giostatus & 0x1f)
+#define HQ3_BFIFO_MAX		16
 
-#define mgras_BFIFOWAIT(base,n)			\
-	while (HQ3_BFIFODEPTH(base) > (64-n))
+/* Upper bound on any hardware spin-wait.  The PROM's equivalents are unbounded,
+ * but a stuck poll here would lock the whole machine; bail out instead. */
+#define MGRAS_SPIN_MAX		10000000
 
-/* For normal operation, wait for BFIFO to emtpy, then check CMAP0 status */
-#define mgras_cmapFIFOWAIT(base)					\
-	{								\
-		mgras_BFIFOWAIT(base,64);				\
-		while (!(base->i2.cmap0.status & 0x08));			\
-	}
-#define new_mgras_cmapFIFOWAIT(base)                    \
-    {                               \
-        mgras_BFIFOWAIT(base,HQ3_BFIFO_MAX);            \
-        while ((base->sr.cmap0.status & 0x04));            \
-        while ((base->sr.cmap1.status & 0x04));            \
-    }
-
-
-void
-mgras_cmapToggleCblank(ImpactRegsPtr base, int OnOff)
+/* Wait for the BFIFO (DCB FIFO) to drain.  Matches MgrasInitCMAP in the IP30
+ * PROM: it spins while ((depth+1)>>1) >= 7, where depth = giostatus & 0x1f.
+ * 'gio' is the board's giostatus register (I2 and SR keep it at different
+ * offsets, so the caller passes the right one). */
+static __inline__ void
+mgras_BFIFOWAIT(mgireg32_t *gio)
 {
-       	mgras_xmapSetAddr(base, 4);
-	if (OnOff) {				/* CBlank is On */
-        	mgras_xmapSetDIBdata(base, (0x3ff | (1 << 14)));
-	}
+	int n = MGRAS_SPIN_MAX;
+	while (--n && (((*gio & 0x1f) + 1) >> 1) >= 7);
+}
+
+/* Wait for the BFIFO to drain, then for the CMAP to be ready.  The PROM polls
+ * cmap0 status until bit 0x08 (ready) is SET - not the 0x04 busy bit, and not
+ * the opposite polarity, which would spin forever.  Must be called with CBlank
+ * at its normal value so the CMAP FIFO can actually drain. */
+static __inline__ void
+mgras_cmapFIFOWAIT(mgireg32_t *gio, Impact_cmapregs_t *cmap)
+{
+	int n = MGRAS_SPIN_MAX;
+	mgras_BFIFOWAIT(gio);
+	while (--n && !(cmap->status & 0x08));
+}
+
+/* The CMAP 16-bit address register is loaded byte-swapped. */
+#define mgras_cmapAddr(v)	((((v) << 8) & 0xff00) | (((v) >> 8) & 0xff))
+
+/* Force CBlank high while touching the CMAP (works around the documented
+ * CMAP-FIFO update bug) by setting the XMAP DIB top-scan register. */
+static void
+mgras_cmapToggleCblank(Impact_xmapregs_t *xmap, int disable)
+{
+	mgras_xmapSetAddr(xmap, 4);			/* DIB top-scan register */
+	if (disable)
+		mgras_xmapSetDIBdata(xmap, (0x3ff | (1 << 14)));
 	else
-        	mgras_xmapSetDIBdata(base, 0x3ff);
+		mgras_xmapSetDIBdata(xmap, 0x3ff);
 }
 
-#define mgras_cmapSetDiag(base, CmapID, val)				\
-{									\
-	if (CmapID){ 							\
-		base->sr.cmap1.reserved = val;				\
-	} else { 							\
-		 base->sr.cmap0.reserved = val;				\
-	}								\
-}
+/*
+ * The cursor's two visible colors live in the CMAP, addressed through the
+ * broadcast "cmapall" DCB port so both color-map banks are updated at once.
+ * The palette base is fixed by the PROM: MgrasInitCursor (IP30 PROM, verified
+ * by disassembly) loads its cursor CmapData with mgras_LoadCmap(base, 0x1cfc,
+ * ..., 8), i.e. cursor-MSB 0x73f, base 0x1cfc.  The 2-bit cursor pixel value
+ * is added to that base.
+ *
+ * ImpactRealizeCursor builds a 2-plane glyph: plane 0 marks foreground pixels
+ * (source&mask) and plane 1 marks background pixels (~source&mask), giving pixel
+ * value 1 = foreground, value 2 = background, value 0 = transparent.  So the
+ * foreground color goes to base+1 and the background color to base+2 - which
+ * matches the PROM's CmapData (entry+1 = red, entry+2 = white).
+ */
+#define MGRAS_CURSOR_CMAP_BASE	0x1cfc		/* cursor-MSB 0x73f << 2 */
 
-#define mgras_cmapSetAddr(base, reg) base->sr.cmapall.addr = reg
-#define mgras_cmapSetRGB(base,r,g,b) base->sr.cmapall.pal = (r << 24) | (g << 16) | (b << 8)
-
-#define MGRAS_CMAP_NCOLMAPENT	8192
+/* The CMAP 'pal' register takes the colour as (r<<24)|(g<<16)|(b<<8).  The X
+ * server hands us fg/bg as packed 8-8-8 RGB (0xRRGGBB), so a single <<8 puts
+ * R,G,B into the top three bytes. */
+#define IMPACT_CMAP_PAL(rgb)	((unsigned)(rgb) << 8)
 
 static void ImpactSetCursorColors(ScrnInfoPtr pScrn, int bg, int fg)
 {
-        ImpactPtr pImpact = IMPACTPTR(pScrn);
-        ImpactRegsPtr pImpactRegs = pImpact->pImpactRegs;
-	int i;
+	ImpactPtr pImpact = IMPACTPTR(pScrn);
+	ImpactRegsPtr pImpactRegs = pImpact->pImpactRegs;
+	int isSR = (&ImpactSRXmapGetModeRegister == pImpact->XmapGetModeRegister);
 
-	Impact_xmapregs_t* xmap =
-                (&ImpactSRXmapGetModeRegister != pImpact->XmapGetModeRegister)
-                        ? &pImpactRegs->i2.xmap
-                        : &pImpactRegs->sr.xmap;
+	Impact_xmapregs_t*  xmap    = isSR ? &pImpactRegs->sr.xmap
+					   : &pImpactRegs->i2.xmap;
+	Impact_cmapregs_t*  cmapall = isSR ? &pImpactRegs->sr.cmapall
+					   : &pImpactRegs->i2.cmapall;
+	Impact_cmapregs_t*  cmap0   = isSR ? &pImpactRegs->sr.cmap0
+					   : &pImpactRegs->i2.cmap0;
+	mgireg32_t*         gio     = isSR ? &pImpactRegs->sr.giostatus
+					   : &pImpactRegs->i2.giostatus;
+	unsigned base = MGRAS_CURSOR_CMAP_BASE;
 
-	/* for now we index to the adress we know */
-	Impact_cmapregs_t* cmap0 = (Impact_cmapregs_t*)&pImpactRegs->sr.cmap0;
-        Impact_cmapregs_t* cmap1 = (Impact_cmapregs_t*)&pImpactRegs->sr.cmap1;
-        Impact_cmapregs_t* cmapall = (Impact_cmapregs_t*)&pImpactRegs->sr.cmapall;
+	/* Follow MgrasInitCMAP's ordering: the CMAP FIFO only drains while CBlank
+	 * is at its normal value (0x3ff), so we poll "ready" (status bit 0x08)
+	 * with CBlank normal, THEN force CBlank high (0x43ff) to write - polling
+	 * with CBlank forced high would wait forever because the FIFO can't drain.
+	 * Two colours never overflow the FIFO, so no mid-write status poll. */
+	mgras_xmapSetPP1Select(xmap, MGRAS_XMAP_WRITEALLPP1);
 
-	/* test if we are at the right spot */
-	fprintf(stderr, "xmap/vc3: %p/%p cmaps: %p %p %p - size: %x\n",
-		&pImpactRegs->sr.xmap, &pImpactRegs->sr.vc3, cmap0, cmap1, cmapall, sizeof(Impact_cmapregs_t));
+	mgras_cmapToggleCblank(xmap, 0);		/* CBlank normal: FIFO drains */
+	mgras_cmapFIFOWAIT(gio, cmap0);			/* wait until CMAP ready */
 
-	fprintf(stderr, "cmap rev: %x %x %x\n", cmap0->rev & 0x1f, cmap1->rev & 0x1f, cmapall->rev & 0x1f);
-	
-	uint8_t* regs = (uint8_t*)pImpactRegs;
-        uint16_t* addr = (uint16_t*)&pImpactRegs->sr.cmapall.addr; //(regs + 0x70c30 + 0x800);
-	uint32_t* pal = (uint32_t*)&pImpactRegs->sr.cmapall.pal; //(regs + 0x70d18 + 0x800);
-	fprintf(stderr, "%p %p %p - col: %x %x\n", regs, addr, pal, bg, fg);
+	mgras_cmapToggleCblank(xmap, 1);		/* force CBlank high to write */
 
-	mgras_BFIFOWAIT(pImpactRegs, HQ3_BFIFO_MAX);
-	new_mgras_cmapFIFOWAIT(pImpactRegs);
+	/* Address each slot explicitly (auto-increment is off), writing the
+	 * byte-swapped address twice: an SGI workaround for the address being
+	 * dropped when the CMAP bus turns around. */
+	cmapall->addr = mgras_cmapAddr(base + 1);
+	cmapall->addr = mgras_cmapAddr(base + 1);
+	cmapall->pal  = IMPACT_CMAP_PAL(fg);	/* pixel value 1: foreground */
 
-        mgras_xmapSetPP1Select(pImpactRegs, MGRAS_XMAP_WRITEALLPP1);
-        mgras_cmapToggleCblank(pImpactRegs, 1); /* disable xmap cblank for writing */
+	cmapall->addr = mgras_cmapAddr(base + 2);
+	cmapall->addr = mgras_cmapAddr(base + 2);
+	cmapall->pal  = IMPACT_CMAP_PAL(bg);	/* pixel value 2: background */
 
-        /* the addr appears to be 16 bit and byte swapped? */
-#define ADDR(reg) ((reg << 8) & 0xff00) | ((reg >> 8) & 0xff)
-
-	cmapall->addr = ADDR(0);
-        cmapall->addr = ADDR(0);
-	cmapall->pal = bg << 8; /* RGBA? */
-	cmapall->pal = fg << 8; /* auto increment */
-
-	// load test ramp
-	for (i = 0; i < MGRAS_CMAP_NCOLMAPENT; ++i) {
-
-                /* Every 16 colors, check cmap FIFO.
-                 * Need to give 2 dummy writes after the read.
-                 */
-                if ((i == 0) || ((i & 0x1F) == 0x1F)) {
-			mgras_cmapToggleCblank(pImpactRegs, 0); /* Enable cblank */
-                        /* cmapFIFOWAIT calls BFIFOWAIT */
-                        new_mgras_cmapFIFOWAIT(pImpactRegs);
-			mgras_cmapToggleCblank(pImpactRegs, 1); /* disable cblank*/
-
-                        mgras_cmapSetAddr(pImpactRegs, addr);
-                        mgras_cmapSetAddr(pImpactRegs, addr);
-
-		}
-		mgras_cmapSetRGB(pImpactRegs, i & 0xff, i & 0xff, i & 0xff);
-	}
-
-        new_mgras_cmapFIFOWAIT(pImpactRegs);
-        mgras_cmapToggleCblank(pImpactRegs, 0); /* enable xmap cblank for reading */
-
-	//mgras_cmapSetDiag(pImpactRegs, 1, 1);
-        cmap1->addr = ADDR(8191);
-	//cmap1->addr = ADDR(0);
-        for (i = 0; i < 512; ++i) { 
-		uint16_t addr = cmap1->addr; //, addr2 = cmap1->addr;
-                //fprintf(stderr, "%02d / %02d: %x / %x\n", ADDR(addr), ADDR(addr2), cmap0->pal, cmap1->pal);
-		fprintf(stderr, "%02d: %x\n", ADDR(addr), cmap1->pal);
-        }
-        //mgras_cmapSetDiag(pImpactRegs, 1, 0);
+	mgras_cmapToggleCblank(xmap, 0);	/* CBlank normal again: drain writes */
+	mgras_BFIFOWAIT(gio);
 }
 
 static unsigned char* ImpactRealizeCursor(xf86CursorInfoPtr infoPtr, CursorPtr pCurs)
@@ -257,16 +226,10 @@ void ImpactLoadCursorImage(ScrnInfoPtr pScrn, unsigned char *bits)
 
         const int curSramAddr = 0x500; /* TODO: maybe just read, like newport? */
         (*pImpact->Vc3Set)( pImpactRegs, VC3_IRES_RAM_ADDR, curSramAddr);
-	//(*pImpact->WaitCfifoEmpty)(pImpactRegs); // HQ3/4?
 
-	/* address of cursor data in vc2's ram */
-        //tmp = NewportVc2Get( pNewportRegs, VC2_IREG_CENTRY);
- 	/* this is where we want to write to: */
-        //NewportVc2Set( pNewportRegs, VC2_IREG_RADDR, tmp);
-        //pNewportRegs->set.dcbmode = (NPORT_DMODE_AVC2 | VC2_REGADDR_RAM | NPORT_DMODE_W2 | VC2_PROTOCOL);
-	/* write cursor data */
+	/* address of cursor data in vc3 ram */
         for (i = 0; i < ((CURS_MAX * CURS_MAX) >> 3); i++) {
-		//pNewportRegs->set.dcbdata0.hwords.s1 = bits[i];
+		/* write cursor data */
 		pImpactRegs->sr.vc3.ram = *(unsigned short*)bits;
 		bits += sizeof(unsigned short);
         }
