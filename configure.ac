@@ -22,7 +22,7 @@
 
 AC_PREREQ(2.57)
 AC_INIT([xf86-video-impact],
-        0.2.0,
+        0.3.0,
         [https://gitlab.freedesktop.org/xorg/driver/xf86-video-impact/issues],
         xf86-video-impact)
 
